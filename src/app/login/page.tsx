@@ -18,7 +18,19 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-stone-200 p-8 shadow-sm">
-          <Suspense>
+          <Suspense fallback={
+            <form className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="email" className="text-stone-700 text-sm font-medium">メールアドレス</label>
+                <input id="email" name="email" type="email" placeholder="you@company.com" required autoComplete="email" className="border-stone-200" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="password" className="text-stone-700 text-sm font-medium">パスワード</label>
+                <input id="password" name="password" type="password" placeholder="••••••••" required autoComplete="current-password" className="border-stone-200" />
+              </div>
+              <button type="submit" className="w-full bg-stone-900 text-white h-10">ログイン</button>
+            </form>
+          }>
             <LoginForm />
           </Suspense>
         </div>
