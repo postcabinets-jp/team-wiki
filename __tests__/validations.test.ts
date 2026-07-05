@@ -33,12 +33,12 @@ const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000'
 const VALID_UUID_2 = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
 const INVALID_UUID = 'not-a-uuid'
 
-function expectSuccess(schema: z.ZodType, data: unknown) {
+function expectSuccess<T extends z.ZodType>(schema: T, data: unknown): z.output<T> {
   const result = schema.safeParse(data)
   if (!result.success) {
     throw new Error(`Expected success but got errors: ${JSON.stringify(result.error.issues)}`)
   }
-  return result.data
+  return result.data as z.output<T>
 }
 
 function expectFailure(schema: z.ZodType, data: unknown) {
