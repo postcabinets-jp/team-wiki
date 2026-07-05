@@ -3,6 +3,16 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import {
+  createWorkspaceSchema,
+  updateWorkspaceSchema,
+  updateWorkspaceAISchema,
+  inviteMemberSchema,
+  removeMemberSchema,
+  getWorkspaceBySlugSchema,
+  formDataToObject,
+  formatZodError,
+} from '@/lib/validations'
 
 function slugify(text: string): string {
   return text
@@ -15,18 +25,19 @@ function slugify(text: string): string {
 }
 
 export async function createWorkspace(formData: FormData) {
+  const parsed = createWorkspaceSchema.safeParse(formDataToObject(formData))
+  if (!parsed.success) return { error: formatZodError(parsed.error) }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const name = formData.get('name') as string
-  if (!name?.trim()) return { error: 'ワークスペース名を入力してください' }
-
+  const name = parsed.data.name.trim()
   const slug = slugify(name)
 
   const { data: workspace, error } = await supabase
     .from('workspaces')
-    .insert({ name: name.trim(), slug, owner_id: user.id })
+    .insert({ name, slug, owner_id: user.id })
     .select()
     .single()
 
@@ -54,17 +65,25 @@ export async function createWorkspace(formData: FormData) {
 }
 
 export async function updateWorkspace(workspaceId: string, formData: FormData) {
+  const raw = formDataToObject(formData)
+  const parsed = updateWorkspaceSchema.safeParse({
+    workspaceId,
+    name: raw.name || undefined,
+    icon: raw.icon || undefined,
+  })
+  if (!parsed.success) return { error: formatZodError(parsed.error) }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const name = formData.get('name') as string
-  const icon = formData.get('icon') as string
-
   const { error } = await supabase
     .from('workspaces')
-    .update({ name, icon })
-    .eq('id', workspaceId)
+    .update({
+      ...(parsed.data.name ? { name: parsed.data.name } : {}),
+      ...(parsed.data.icon ? { icon: parsed.data.icon } : {}),
+    })
+    .eq('id', parsed.data.workspaceId)
 
   if (error) return { error: '更新に失敗しました' }
 
@@ -73,21 +92,28 @@ export async function updateWorkspace(workspaceId: string, formData: FormData) {
 }
 
 export async function updateWorkspaceAI(workspaceId: string, formData: FormData) {
+  const raw = formDataToObject(formData)
+  const parsed = updateWorkspaceAISchema.safeParse({
+    workspaceId,
+    provider: raw.provider ?? '',
+    api_key: raw.api_key ?? '',
+  })
+  if (!parsed.success) return { error: formatZodError(parsed.error) }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const provider = formData.get('provider') as string
-  const apiKey = formData.get('api_key') as string
+  const provider = parsed.data.provider || null
 
   const { error } = await supabase
     .from('workspaces')
     .update({
       ai_provider: provider as 'openai' | 'anthropic' | 'gemini' | null,
       // In production, encrypt this key. For MVP, store as-is.
-      ai_api_key_encrypted: apiKey || null,
+      ai_api_key_encrypted: parsed.data.api_key || null,
     })
-    .eq('id', workspaceId)
+    .eq('id', parsed.data.workspaceId)
 
   if (error) return { error: '更新に失敗しました' }
 
@@ -96,12 +122,19 @@ export async function updateWorkspaceAI(workspaceId: string, formData: FormData)
 }
 
 export async function inviteMember(workspaceId: string, formData: FormData) {
+  const raw = formDataToObject(formData)
+  const parsed = inviteMemberSchema.safeParse({
+    workspaceId,
+    email: raw.email ?? '',
+    role: raw.role || 'member',
+  })
+  if (!parsed.success) return { error: formatZodError(parsed.error) }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const email = formData.get('email') as string
-  const role = (formData.get('role') as string) || 'member'
+  const { email, role } = parsed.data
 
   // Find user by email
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,7 +152,7 @@ export async function inviteMember(workspaceId: string, formData: FormData) {
   const { error } = await supabase
     .from('workspace_members')
     .insert({
-      workspace_id: workspaceId,
+      workspace_id: parsed.data.workspaceId,
       user_id: profile.id,
       role: role as 'admin' | 'member' | 'guest',
       invited_by: user.id,
@@ -135,6 +168,9 @@ export async function inviteMember(workspaceId: string, formData: FormData) {
 }
 
 export async function removeMember(workspaceId: string, userId: string) {
+  const parsed = removeMemberSchema.safeParse({ workspaceId, userId })
+  if (!parsed.success) return { error: formatZodError(parsed.error) }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -142,8 +178,8 @@ export async function removeMember(workspaceId: string, userId: string) {
   const { error } = await supabase
     .from('workspace_members')
     .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('user_id', parsed.data.userId)
 
   if (error) return { error: '削除に失敗しました' }
 
@@ -152,11 +188,14 @@ export async function removeMember(workspaceId: string, userId: string) {
 }
 
 export async function getWorkspaceBySlug(slug: string) {
+  const parsed = getWorkspaceBySlugSchema.safeParse({ slug })
+  if (!parsed.success) return null
+
   const supabase = await createClient()
   const { data } = await supabase
     .from('workspaces')
     .select('*, workspace_members(*)')
-    .eq('slug', slug)
+    .eq('slug', parsed.data.slug)
     .single()
   return data
 }
